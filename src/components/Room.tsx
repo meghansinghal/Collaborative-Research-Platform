@@ -185,7 +185,7 @@ export function Room() {
       setSelectedPaper(data);
     } catch (error: any) {
       console.error('Error processing paper:', error);
-      setError('Failed to process paper. Please try again.');
+      setError(error?.message || 'Failed to process paper. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -216,7 +216,7 @@ export function Room() {
       setAnswer(response);
     } catch (err: any) {
       console.error('Error answering question:', err);
-      setError('Failed to answer question. Please try again.');
+      setError(err?.message || 'Failed to answer question. Please try again.');
     } finally {
       setAnalyzing(false);
     }
