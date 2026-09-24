@@ -18,16 +18,44 @@ function getGeminiErrorMessage(error: unknown): string {
     return 'Gemini API quota is unavailable for the current Google AI Studio project. Check that the API key belongs to the intended project, verify the project shows a non-zero rate limit in AI Studio, and enable billing if the free tier is not available for that project or region.';
   }
 
+  if (message.includes('503') || message.toLowerCase().includes('overloaded') || message.toLowerCase().includes('high demand')) {
+    return 'Gemini is temporarily overloaded and could not respond even after retrying. Please try again in a moment.';
+  }
+
   return message;
+}
+
+function isRetryableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : '';
+  return (
+    message.includes('503') ||
+    message.toLowerCase().includes('overloaded') ||
+    message.toLowerCase().includes('high demand')
+  );
+}
+
+async function generateContentWithRetry(prompt: string, maxRetries = 2): Promise<string> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      return response.text();
+    } catch (error: unknown) {
+      if (attempt === maxRetries || !isRetryableError(error)) {
+        throw error;
+      }
+      const delayMs = 1000 * 2 ** attempt;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw new Error('Gemini request failed');
 }
 
 export async function summarizePaper(text: string): Promise<string> {
   const prompt = `Please provide a comprehensive summary of the following research paper. Focus on the main findings, methodology, and conclusions. Give pre formatted text as output. Here's the paper text:\n\n${text}`;
-  
+
   try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    return response.text();
+    return await generateContentWithRetry(prompt);
   } catch (error: unknown) {
     const message = getGeminiErrorMessage(error);
     console.error('Error summarizing paper:', message);
@@ -37,13 +65,11 @@ export async function summarizePaper(text: string): Promise<string> {
 
 export async function answerQuestion(text: string, question: string): Promise<string> {
   const prompt = `Using the context of the following research paper, please answer this question: "${question}"
-  
+
   Paper text:\n\n${text}`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    return response.text();
+    return await generateContentWithRetry(prompt);
   } catch (error: unknown) {
     const message = getGeminiErrorMessage(error);
     console.error('Error answering question:', message);
@@ -70,12 +96,8 @@ As their mentor, please provide:
 4. Areas where they could contribute novel insights to the field
 
 Keep the tone supportive yet professional, as if you're a senior researcher mentoring a promising junior colleague.`;
-    
-    const result = await model.generateContent(prompt);
-    if (!result.response) {
-      throw new Error('No response received from Gemini API');
-    }
-    return result.response.text();
+
+    return await generateContentWithRetry(prompt);
   } catch (error: any) {
     const message = getGeminiErrorMessage(error);
     console.error('Error in getSuggestions:', message);
